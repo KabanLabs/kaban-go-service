@@ -17,8 +17,9 @@ type App struct {
 }
 
 type Client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn   *websocket.Conn
+	send   chan []byte
+	userId string
 }
 
 type Hub struct {
@@ -31,6 +32,7 @@ type Hub struct {
 
 type BroadcastMessage struct {
 	WorkspaceID string
+	UserId      string
 	Message     []byte
 }
 
@@ -91,11 +93,12 @@ func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID, userI
 	}
 
 	client := &Client{
-		conn: conn,
-		send: make(chan []byte, a.Config.WSSendBuffer),
+		conn:   conn,
+		send:   make(chan []byte, a.Config.WSSendBuffer),
+		userId: userId,
 	}
 
-	key := fmt.Sprintf("%s:%s", userId, workspaceID)
+	key := fmt.Sprintf("%s", workspaceID)
 
 	a.Hub.mu.Lock()
 	if a.Hub.clients[key] == nil {
@@ -112,7 +115,7 @@ func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID, userI
 
 func (c *Client) readPump(h *Hub, workspaceID, userId string, logger *slog.Logger) {
 	defer func() {
-		key := fmt.Sprintf("%s:%s", userId, workspaceID)
+		key := fmt.Sprintf("%s", workspaceID)
 		h.mu.Lock()
 		delete(h.clients[key], c)
 		h.mu.Unlock()
@@ -166,6 +169,10 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			clients := h.clients[msg.WorkspaceID]
 			for client := range clients {
+				if client.userId == msg.UserId {
+					continue
+				}
+
 				select {
 				case client.send <- msg.Message:
 				default:
