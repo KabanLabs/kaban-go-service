@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -63,11 +64,16 @@ func (a *App) Run() error {
 	// Регистрируем endpoint WS
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		workspaceID := r.URL.Query().Get("workspaceId")
+		userId := r.URL.Query().Get("userId")
 		if workspaceID == "" {
 			http.Error(w, "workspaceId required", http.StatusBadRequest)
 			return
 		}
-		a.ServeWS(w, r, workspaceID)
+		if userId == "" {
+			http.Error(w, "userId required", http.StatusBadRequest)
+			return
+		}
+		a.ServeWS(w, r, workspaceID, userId)
 	})
 
 	// Запускаем Hub
@@ -77,7 +83,7 @@ func (a *App) Run() error {
 	return nil
 }
 
-func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID string) {
+func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID, userId string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		a.log.Warn("WebSocket upgrade error", "error", err)
@@ -89,23 +95,26 @@ func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID string
 		send: make(chan []byte, a.Config.WSSendBuffer),
 	}
 
+	key := fmt.Sprintf("%s:%s", userId, workspaceID)
+
 	a.Hub.mu.Lock()
-	if a.Hub.clients[workspaceID] == nil {
-		a.Hub.clients[workspaceID] = make(map[*Client]bool)
+	if a.Hub.clients[key] == nil {
+		a.Hub.clients[key] = make(map[*Client]bool)
 	}
-	a.Hub.clients[workspaceID][client] = true
+	a.Hub.clients[key][client] = true
 	a.Hub.mu.Unlock()
 
 	a.log.Info("New WS client connected", "workspaceId", workspaceID, "addr", conn.RemoteAddr().String())
 
 	go client.writePump(a.log)
-	go client.readPump(a.Hub, workspaceID, a.log)
+	go client.readPump(a.Hub, workspaceID, userId, a.log)
 }
 
-func (c *Client) readPump(h *Hub, workspaceID string, logger *slog.Logger) {
+func (c *Client) readPump(h *Hub, workspaceID, userId string, logger *slog.Logger) {
 	defer func() {
+		key := fmt.Sprintf("%s:%s", userId, workspaceID)
 		h.mu.Lock()
-		delete(h.clients[workspaceID], c)
+		delete(h.clients[key], c)
 		h.mu.Unlock()
 		c.conn.Close()
 		logger.Info("WS client disconnected", "workspaceId", workspaceID, "addr", c.conn.RemoteAddr().String())
