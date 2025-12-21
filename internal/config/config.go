@@ -8,15 +8,13 @@ import (
 )
 
 type Config struct {
-	Env  string     `yaml:"env" env-default:"local"`
-	Http HttpConfig `yaml:"http"`
-}
-
-type HttpConfig struct {
-	Port int `yaml:"port" env-default:"8888"`
+	Env string   `yaml:"env" env-default:"local"`
+	Ws  WsConfig `yaml:"ws"`
 }
 type WsConfig struct {
-	Port int `yaml:"port" env-default:"5555"`
+	Port         int `yaml:"port" env-default:"5555"`
+	WSMaxMessage int `yaml:"ws-max-message-size" env-default:"1048576"`
+	WSSendBuffer int `yaml:"ws-send-buffer-size" env-default:"256"`
 }
 
 func MustLoad() *Config {

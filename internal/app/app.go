@@ -1,32 +1,48 @@
 package app
 
 import (
-	"log"
-	"net/http"
+	"log/slog"
 
 	"github.com/VACdotCS/kaban-go-service/internal/app/gateway"
 	"github.com/VACdotCS/kaban-go-service/internal/app/ws"
+	"github.com/VACdotCS/kaban-go-service/internal/config"
 )
 
-func App() {
-	hub := ws.NewHub()
-	go hub.Run()
+// App объединяет все слои
+type App struct {
+	WS      *ws.App
+	Gateway *gateway.App
+	Logger  *slog.Logger
+	Config  *config.Config
+}
 
-	// Запускаем WebSocket endpoint
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		workspaceID := r.URL.Query().Get("workspaceId")
-		if workspaceID == "" {
-			http.Error(w, "workspaceId required", http.StatusBadRequest)
-			return
-		}
-		hub.ServeWS(w, r, workspaceID)
-	})
-
-	// Запускаем HTTP POST gateway
-	gateway.RunGateway(hub)
-
-	log.Println("Server started on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal(err)
+// New создаёт новый App со всеми слоями
+func New(cfg *config.Config, logger *slog.Logger) *App {
+	if logger == nil {
+		logger = slog.Default()
 	}
+
+	wsApp := ws.New(&cfg.Ws, logger)
+	gwApp := gateway.New(wsApp.Hub, logger)
+
+	return &App{
+		WS:      wsApp,
+		Gateway: gwApp,
+		Logger:  logger,
+		Config:  cfg,
+	}
+}
+
+// Run запускает все слои приложения
+func (a *App) Run() error {
+	if err := a.WS.Run(); err != nil {
+		return err
+	}
+
+	if err := a.Gateway.Run(); err != nil {
+		return err
+	}
+
+	a.Logger.Info("All application layers started")
+	return nil
 }

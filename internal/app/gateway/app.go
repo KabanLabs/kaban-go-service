@@ -2,9 +2,10 @@ package gateway
 
 import (
 	"encoding/json"
-	"io/ioutil"
-	_ "log"
+	"io"
 	"net/http"
+
+	"log/slog"
 
 	"github.com/VACdotCS/kaban-go-service/internal/app/ws"
 )
@@ -16,31 +17,50 @@ type Event struct {
 	Rev         int64       `json:"rev"`
 }
 
-func RunGateway(hub *ws.Hub) {
-	http.HandleFunc("/event", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
+type App struct {
+	hub *ws.Hub
+	log *slog.Logger
+}
 
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+func New(hub *ws.Hub, logger *slog.Logger) *App {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &App{hub: hub, log: logger}
+}
 
-		var event Event
-		if err := json.Unmarshal(body, &event); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+func (a *App) Run() error {
+	http.HandleFunc("/event", a.handleEvent)
+	a.log.Info("Gateway started")
+	return nil
+}
 
-		// Отправляем в hub
-		hub.Broadcast <- ws.BroadcastMessage{
-			WorkspaceID: event.WorkspaceID,
-			Message:     body,
-		}
+func (a *App) handleEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 
-		w.WriteHeader(http.StatusOK)
-	})
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		a.log.Warn("Read request body error", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var event Event
+	if err := json.Unmarshal(body, &event); err != nil {
+		a.log.Warn("JSON unmarshal error", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	a.log.Info("Received event", "workspaceId", event.WorkspaceID, "type", event.Type)
+
+	a.hub.Broadcast <- ws.BroadcastMessage{
+		WorkspaceID: event.WorkspaceID,
+		Message:     body,
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

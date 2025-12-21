@@ -1,0 +1,5 @@
+env: 'local' #dev
+ws:
+  port: 8888
+  ws-max-message-size: 1048576
+  ws-send-buffer-size: 256
