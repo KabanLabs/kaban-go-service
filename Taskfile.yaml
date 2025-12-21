@@ -1,0 +1,12 @@
+version: 3
+
+tasks:
+  start:dev:
+    desc: "Run local dev version"
+    cmds:
+      - go run ./cmd/syncer --config=./config/local.yaml
+
+  start:prod:
+    desc: "Run production config"
+    cmds:
+      - go run ./cmd/syncer --config=./config/prod.yaml
