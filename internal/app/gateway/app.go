@@ -12,6 +12,7 @@ import (
 
 type Event struct {
 	WorkspaceID string      `json:"workspaceId"`
+	UserId      string      `json:"userId"`
 	Type        string      `json:"type"`
 	Payload     interface{} `json:"payload"`
 	Rev         int64       `json:"rev"`
@@ -59,6 +60,7 @@ func (a *App) handleEvent(w http.ResponseWriter, r *http.Request) {
 
 	a.hub.Broadcast <- ws.BroadcastMessage{
 		WorkspaceID: event.WorkspaceID,
+		UserId:      event.UserId,
 		Message:     body,
 	}
 
