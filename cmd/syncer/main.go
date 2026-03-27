@@ -41,10 +41,34 @@ func main() {
 
 	http.Handle("/metrics", promhttp.Handler())
 
+	// Настройка CORS
+	var handler http.Handler
+	if cfg.Http.EnabledCors {
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				origin = "*"
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			http.DefaultServeMux.ServeHTTP(w, r)
+		})
+	} else {
+		handler = http.DefaultServeMux
+	}
+
 	// HTTP сервер
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Ws.Port),
-		Handler: http.DefaultServeMux,
+		Handler: handler,
 	}
 
 	// Запуск сервера в отдельной горутине
