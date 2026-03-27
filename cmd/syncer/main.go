@@ -13,6 +13,7 @@ import (
 
 	"github.com/VACdotCS/kaban-go-service/internal/app"
 	"github.com/VACdotCS/kaban-go-service/internal/config"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -37,6 +38,8 @@ func main() {
 		log.Error("Failed to start application layers", "error", err)
 		os.Exit(1)
 	}
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	// HTTP сервер
 	server := &http.Server{
