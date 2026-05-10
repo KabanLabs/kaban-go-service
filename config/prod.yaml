@@ -1,0 +1,6 @@
+env: 'prod'
+ws:
+  port: 5555
+  ws-max-message-size: 1048576
+  ws-send-buffer-size: 256
+  log-data-stream: false

@@ -18,9 +18,10 @@ type HttpConfig struct {
 }
 
 type WsConfig struct {
-	Port         int `yaml:"port" env-default:"5555"`
-	WSMaxMessage int `yaml:"ws-max-message-size" env-default:"1048576"`
-	WSSendBuffer int `yaml:"ws-send-buffer-size" env-default:"256"`
+	Port          int  `yaml:"port" env-default:"5555"`
+	WSMaxMessage  int  `yaml:"ws-max-message-size" env-default:"1048576"`
+	WSSendBuffer  int  `yaml:"ws-send-buffer-size" env-default:"256"`
+	LogDataStream bool `yaml:"log-data-stream" env-default:"false"`
 }
 
 func MustLoad() *Config {
