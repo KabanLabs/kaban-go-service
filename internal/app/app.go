@@ -1,17 +1,20 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/VACdotCS/kaban-go-service/internal/app/gateway"
 	"github.com/VACdotCS/kaban-go-service/internal/app/ws"
 	"github.com/VACdotCS/kaban-go-service/internal/config"
+	"github.com/VACdotCS/kaban-go-service/internal/services/auth"
 )
 
 // App объединяет все слои
 type App struct {
 	WS      *ws.App
 	Gateway *gateway.App
+	Auth    *auth.Client
 	Logger  *slog.Logger
 	Config  *config.Config
 }
@@ -22,12 +25,18 @@ func New(cfg *config.Config, logger *slog.Logger) *App {
 		logger = slog.Default()
 	}
 
-	wsApp := ws.New(&cfg.Ws, logger)
-	gwApp := gateway.New(wsApp.Hub, logger)
+	authClient, err := auth.New(context.Background(), &cfg.Auth, logger)
+	if err != nil {
+		panic("failed to initialize auth client: " + err.Error())
+	}
+
+	wsApp := ws.New(&cfg.Ws, authClient, logger)
+	gwApp := gateway.New(wsApp.Hub, cfg.Http.ApiKey, logger)
 
 	return &App{
 		WS:      wsApp,
 		Gateway: gwApp,
+		Auth:    authClient,
 		Logger:  logger,
 		Config:  cfg,
 	}

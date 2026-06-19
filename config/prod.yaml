@@ -1,4 +1,10 @@
 env: 'prod'
+auth:
+  address: "auth-service:44044"
+  timeout: "5s"
+http:
+  enable_cors: true
+  api_key: "${API_KEY}"
 ws:
   port: 5555
   ws-max-message-size: 1048576

@@ -1,4 +1,10 @@
 env: 'local' #dev
+auth:
+  address: "localhost:44044"
+  timeout: "5s"
+http:
+  enable_cors: true
+  api_key: "dev-secret-key"
 ws:
   port: 8888
   ws-max-message-size: 1048576

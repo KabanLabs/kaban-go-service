@@ -19,15 +19,16 @@ type Event struct {
 }
 
 type App struct {
-	hub *ws.Hub
-	log *slog.Logger
+	hub    *ws.Hub
+	apiKey string
+	log    *slog.Logger
 }
 
-func New(hub *ws.Hub, logger *slog.Logger) *App {
+func New(hub *ws.Hub, apiKey string, logger *slog.Logger) *App {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &App{hub: hub, log: logger}
+	return &App{hub: hub, apiKey: apiKey, log: logger}
 }
 
 func (a *App) Run() error {
@@ -39,6 +40,13 @@ func (a *App) Run() error {
 func (a *App) handleEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	authHeader := r.Header.Get("x-api-key")
+	if authHeader == "" || authHeader != a.apiKey {
+		a.log.Warn("Unauthorized request to /event")
+		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 

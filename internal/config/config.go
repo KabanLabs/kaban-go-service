@@ -11,10 +11,17 @@ type Config struct {
 	Env  string     `yaml:"env" env-default:"local"`
 	Ws   WsConfig   `yaml:"ws"`
 	Http HttpConfig `yaml:"http"`
+	Auth AuthConfig `yaml:"auth"`
 }
 
 type HttpConfig struct {
-	EnabledCors bool `yaml:"enable_cors" env-default:"false"`
+	EnabledCors bool   `yaml:"enable_cors" env-default:"false"`
+	ApiKey      string `yaml:"api_key" env-default:"dev-secret-key"`
+}
+
+type AuthConfig struct {
+	Address string `yaml:"address" env-default:"localhost:44044"`
+	Timeout string `yaml:"timeout" env-default:"5s"`
 }
 
 type WsConfig struct {

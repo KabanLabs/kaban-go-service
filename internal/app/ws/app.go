@@ -7,12 +7,14 @@ import (
 	"sync"
 
 	"github.com/VACdotCS/kaban-go-service/internal/config"
+	"github.com/VACdotCS/kaban-go-service/internal/services/auth"
 	"github.com/gorilla/websocket"
 )
 
 type App struct {
 	Hub    *Hub
 	Config *config.WsConfig
+	auth   *auth.Client
 	log    *slog.Logger
 }
 
@@ -54,7 +56,7 @@ func NewHub(logger *slog.Logger, logDataStream bool) *Hub {
 	}
 }
 
-func New(cfg *config.WsConfig, logger *slog.Logger) *App {
+func New(cfg *config.WsConfig, authClient *auth.Client, logger *slog.Logger) *App {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -63,6 +65,7 @@ func New(cfg *config.WsConfig, logger *slog.Logger) *App {
 	return &App{
 		Hub:    hub,
 		Config: cfg,
+		auth:   authClient,
 		log:    logger,
 	}
 }
@@ -72,6 +75,8 @@ func (a *App) Run() error {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		workspaceID := r.URL.Query().Get("workspaceId")
 		userId := r.URL.Query().Get("userId")
+		token := r.URL.Query().Get("token")
+
 		if workspaceID == "" {
 			http.Error(w, "workspaceId required", http.StatusBadRequest)
 			return
@@ -80,6 +85,18 @@ func (a *App) Run() error {
 			http.Error(w, "userId required", http.StatusBadRequest)
 			return
 		}
+		if token == "" {
+			http.Error(w, "token required", http.StatusBadRequest)
+			return
+		}
+
+		isValid, err := a.auth.ValidateToken(r.Context(), token)
+		if err != nil || !isValid {
+			a.log.Warn("WebSocket unauthorized access attempt", "workspaceId", workspaceID, "userId", userId, "error", err)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		a.ServeWS(w, r, workspaceID, userId)
 	})
 
@@ -135,11 +152,11 @@ func (c *Client) readPump(h *Hub, workspaceID, userId string, logger *slog.Logge
 			logger.Warn("ReadMessage error", "error", err, "workspaceId", workspaceID, "userId", userId)
 			break
 		}
-		
+
 		if c.logDataStream {
 			logger.Info("WS message received from client", "workspaceId", workspaceID, "userId", userId, "messageSize", len(message))
 		}
-		
+
 		h.Broadcast <- BroadcastMessage{
 			WorkspaceID: workspaceID,
 			UserId:      userId,
@@ -187,7 +204,7 @@ func (h *Hub) Run() {
 			if h.logDataStream {
 				h.log.Info("WS broadcast received", "workspaceId", msg.WorkspaceID, "fromUserId", msg.UserId, "messageSize", len(msg.Message))
 			}
-			
+
 			h.mu.Lock()
 			clients := h.clients[msg.WorkspaceID]
 			for client := range clients {
