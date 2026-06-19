@@ -78,14 +78,17 @@ func (a *App) Run() error {
 		token := r.URL.Query().Get("token")
 
 		if workspaceID == "" {
+			a.log.Warn("WebSocket connection attempt without workspaceId")
 			http.Error(w, "workspaceId required", http.StatusBadRequest)
 			return
 		}
 		if userId == "" {
+			a.log.Warn("WebSocket connection attempt without userId")
 			http.Error(w, "userId required", http.StatusBadRequest)
 			return
 		}
 		if token == "" {
+			a.log.Warn("WebSocket connection attempt without token", "workspaceId", workspaceID, "userId", userId)
 			http.Error(w, "token required", http.StatusBadRequest)
 			return
 		}
