@@ -66,11 +66,11 @@ func (a *App) handleEvent(w http.ResponseWriter, r *http.Request) {
 
 	a.log.Info("Received event", "workspaceId", event.WorkspaceID, "type", event.Type)
 
-	a.hub.Broadcast <- ws.BroadcastMessage{
+	a.hub.BroadcastEvent(ws.BroadcastMessage{
 		WorkspaceID: event.WorkspaceID,
 		UserId:      event.UserId,
 		Message:     body,
-	}
+	})
 
 	w.WriteHeader(http.StatusOK)
 }

@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -25,12 +24,19 @@ type Client struct {
 	logDataStream bool
 }
 
-type Hub struct {
-	clients       map[string]map[*Client]bool
+type Room struct {
+	id            string
+	clients       map[*Client]bool
 	register      chan *Client
 	unregister    chan *Client
-	Broadcast     chan BroadcastMessage
-	mu            sync.Mutex
+	broadcast     chan BroadcastMessage
+	log           *slog.Logger
+	logDataStream bool
+}
+
+type Hub struct {
+	rooms         map[string]*Room
+	mu            sync.RWMutex
 	log           *slog.Logger
 	logDataStream bool
 }
@@ -45,15 +51,96 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func NewHub(logger *slog.Logger, logDataStream bool) *Hub {
-	return &Hub{
-		clients:       make(map[string]map[*Client]bool),
+func NewRoom(id string, logger *slog.Logger, logDataStream bool) *Room {
+	return &Room{
+		id:            id,
+		clients:       make(map[*Client]bool),
 		register:      make(chan *Client),
 		unregister:    make(chan *Client),
-		Broadcast:     make(chan BroadcastMessage),
+		broadcast:     make(chan BroadcastMessage),
 		log:           logger,
 		logDataStream: logDataStream,
 	}
+}
+
+func (r *Room) Run() {
+	for {
+		select {
+		case client := <-r.register:
+			r.clients[client] = true
+
+			if r.logDataStream {
+				r.log.Info("WS client registered to room", "workspaceId", r.id, "userId", client.userId)
+			}
+
+		case client := <-r.unregister:
+			if _, ok := r.clients[client]; ok {
+				delete(r.clients, client)
+				close(client.send)
+
+				if r.logDataStream {
+					r.log.Info("WS client unregistered from room", "workspaceId", r.id, "userId", client.userId)
+				}
+			}
+		case msg := <-r.broadcast:
+			if r.logDataStream {
+				r.log.Info("WS broadcast received in room", "workspaceId", r.id, "fromUserId", msg.UserId, "messageSize", len(msg.Message))
+			}
+
+			for client := range r.clients {
+				if client.userId == msg.UserId {
+					continue
+				}
+
+				if r.logDataStream {
+					r.log.Info("WS sending event to client", "workspaceId", r.id, "fromUserId", msg.UserId, "toUserId", client.userId)
+				}
+
+				select {
+				case client.send <- msg.Message:
+				default:
+					if r.logDataStream {
+						r.log.Warn("WS client send buffer full, dropping client", "workspaceId", r.id, "toUserId", client.userId)
+					}
+					close(client.send)
+					delete(r.clients, client)
+				}
+			}
+		}
+	}
+}
+
+func NewHub(logger *slog.Logger, logDataStream bool) *Hub {
+	return &Hub{
+		rooms:         make(map[string]*Room),
+		log:           logger,
+		logDataStream: logDataStream,
+	}
+}
+
+func (h *Hub) GetOrCreateRoom(workspaceID string) *Room {
+	h.mu.RLock()
+	room, exists := h.rooms[workspaceID]
+	h.mu.RUnlock()
+
+	if !exists {
+		h.mu.Lock()
+		// Double-checked locking
+		room, exists = h.rooms[workspaceID]
+		if !exists {
+			room = NewRoom(workspaceID, h.log, h.logDataStream)
+			h.rooms[workspaceID] = room
+			go room.Run()
+		}
+		h.mu.Unlock()
+	}
+
+	return room
+}
+
+func (h *Hub) BroadcastEvent(msg BroadcastMessage) {
+	room := h.GetOrCreateRoom(msg.WorkspaceID)
+	room.broadcast <- msg
 }
 
 func New(cfg *config.WsConfig, authClient *auth.Client, logger *slog.Logger) *App {
@@ -103,9 +190,6 @@ func (a *App) Run() error {
 		a.ServeWS(w, r, workspaceID, userId)
 	})
 
-	// Запускаем Hub
-	go a.Hub.Run()
-
 	a.log.Info("WebSocket server started")
 	return nil
 }
@@ -124,27 +208,18 @@ func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID, userI
 		logDataStream: a.Config.LogDataStream,
 	}
 
-	key := fmt.Sprintf("%s", workspaceID)
-
-	a.Hub.mu.Lock()
-	if a.Hub.clients[key] == nil {
-		a.Hub.clients[key] = make(map[*Client]bool)
-	}
-	a.Hub.clients[key][client] = true
-	a.Hub.mu.Unlock()
+	room := a.Hub.GetOrCreateRoom(workspaceID)
+	room.register <- client
 
 	a.log.Info("New WS client connected", "workspaceId", workspaceID, "userId", userId, "addr", conn.RemoteAddr().String())
 
 	go client.writePump(a.log)
-	go client.readPump(a.Hub, workspaceID, userId, a.log)
+	go client.readPump(room, workspaceID, userId, a.log)
 }
 
-func (c *Client) readPump(h *Hub, workspaceID, userId string, logger *slog.Logger) {
+func (c *Client) readPump(r *Room, workspaceID, userId string, logger *slog.Logger) {
 	defer func() {
-		key := fmt.Sprintf("%s", workspaceID)
-		h.mu.Lock()
-		delete(h.clients[key], c)
-		h.mu.Unlock()
+		r.unregister <- c
 		c.conn.Close()
 		logger.Info("WS client disconnected", "workspaceId", workspaceID, "userId", userId, "addr", c.conn.RemoteAddr().String())
 	}()
@@ -160,7 +235,7 @@ func (c *Client) readPump(h *Hub, workspaceID, userId string, logger *slog.Logge
 			logger.Info("WS message received from client", "workspaceId", workspaceID, "userId", userId, "messageSize", len(message))
 		}
 
-		h.Broadcast <- BroadcastMessage{
+		r.broadcast <- BroadcastMessage{
 			WorkspaceID: workspaceID,
 			UserId:      userId,
 			Message:     message,
@@ -174,62 +249,6 @@ func (c *Client) writePump(logger *slog.Logger) {
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 			logger.Warn("WriteMessage error", "error", err, "userId", c.userId)
 			break
-		}
-	}
-}
-
-func (h *Hub) Run() {
-	for {
-		select {
-		case client := <-h.register:
-			h.mu.Lock()
-			// Вставка клиента во все workspace (или можно конкретизировать)
-			for _, clients := range h.clients {
-				clients[client] = true
-			}
-			h.mu.Unlock()
-			if h.logDataStream {
-				h.log.Info("WS client registered", "userId", client.userId)
-			}
-
-		case client := <-h.unregister:
-			h.mu.Lock()
-			for _, clients := range h.clients {
-				delete(clients, client)
-			}
-			h.mu.Unlock()
-			close(client.send)
-			if h.logDataStream {
-				h.log.Info("WS client unregistered", "userId", client.userId)
-			}
-
-		case msg := <-h.Broadcast:
-			if h.logDataStream {
-				h.log.Info("WS broadcast received", "workspaceId", msg.WorkspaceID, "fromUserId", msg.UserId, "messageSize", len(msg.Message))
-			}
-
-			h.mu.Lock()
-			clients := h.clients[msg.WorkspaceID]
-			for client := range clients {
-				if client.userId == msg.UserId {
-					continue
-				}
-
-				if h.logDataStream {
-					h.log.Info("WS sending event to client", "workspaceId", msg.WorkspaceID, "fromUserId", msg.UserId, "toUserId", client.userId)
-				}
-
-				select {
-				case client.send <- msg.Message:
-				default:
-					if h.logDataStream {
-						h.log.Warn("WS client send buffer full, dropping client", "workspaceId", msg.WorkspaceID, "toUserId", client.userId)
-					}
-					close(client.send)
-					delete(clients, client)
-				}
-			}
-			h.mu.Unlock()
 		}
 	}
 }
