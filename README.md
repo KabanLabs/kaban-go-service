@@ -1,3 +1,5 @@
+[English](README_en.md) | [Русский](README.md)
+
 # Kaban Syncer Service
 
 Сервис маршрутизации событий (Gateway) и управления WebSocket-соединениями для экосистемы Kaban.
