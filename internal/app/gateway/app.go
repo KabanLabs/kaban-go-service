@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/VACdotCS/kaban-go-service/internal/app/ws"
+	"github.com/VACdotCS/kaban-go-service/internal/metrics"
 )
 
 type Event struct {
@@ -65,6 +66,7 @@ func (a *App) handleEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.log.Info("Received event", "workspaceId", event.WorkspaceID, "type", event.Type)
+	metrics.EventsReceived.WithLabelValues(event.Type).Inc()
 
 	a.hub.BroadcastEvent(ws.BroadcastMessage{
 		WorkspaceID: event.WorkspaceID,

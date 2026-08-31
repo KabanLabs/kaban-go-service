@@ -111,7 +111,7 @@ func TestGateway_BroadcastsToHub(t *testing.T) {
 	req.Header.Set("x-api-key", apiKey)
 	rr := httptest.NewRecorder()
 
-	// Wait, we need a way to check if the message reached the hub. 
+	// Wait, we need a way to check if the message reached the hub.
 	// We can connect a dummy client to the hub's room and see if it gets the broadcast.
 	room := hub.GetOrCreateRoom("ws1")
 	// wait a bit for processing
@@ -124,7 +124,7 @@ func TestGateway_BroadcastsToHub(t *testing.T) {
 
 	// Just a small sleep to let the broadcast channel process the message if any
 	time.Sleep(10 * time.Millisecond)
-	
+
 	// The message is sent to room.broadcast channel.
 	_ = room
 }

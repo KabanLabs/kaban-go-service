@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/VACdotCS/kaban-go-service/internal/config"
+	"github.com/VACdotCS/kaban-go-service/internal/metrics"
 	ssov1 "github.com/VACdotCS/protos/gen/go/sso"
+	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -40,9 +42,11 @@ func (c *Client) ValidateToken(ctx context.Context, token string) (bool, error) 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	timer := prometheus.NewTimer(metrics.SSOAuthDuration)
 	resp, err := c.api.ValidateToken(ctx, &ssov1.ValidateTokenRequest{
 		AccessToken: token,
 	})
+	timer.ObserveDuration()
 
 	if err != nil {
 		c.log.Error("Failed to validate token via gRPC", "error", err)

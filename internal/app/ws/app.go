@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/VACdotCS/kaban-go-service/internal/config"
+	"github.com/VACdotCS/kaban-go-service/internal/metrics"
 	"github.com/VACdotCS/kaban-go-service/internal/services/auth"
 	"github.com/gorilla/websocket"
 )
@@ -98,10 +99,12 @@ func (r *Room) Run() {
 
 				select {
 				case client.send <- msg.Message:
+					metrics.MessagesBroadcasted.Inc()
 				default:
 					if r.logDataStream {
 						r.log.Warn("WS client send buffer full, dropping client", "workspaceId", r.id, "toUserId", client.userId)
 					}
+					metrics.DroppedClients.Inc()
 					close(client.send)
 					delete(r.clients, client)
 				}
@@ -130,6 +133,7 @@ func (h *Hub) GetOrCreateRoom(workspaceID string) *Room {
 		if !exists {
 			room = NewRoom(workspaceID, h.log, h.logDataStream)
 			h.rooms[workspaceID] = room
+			metrics.ActiveRooms.Inc()
 			go room.Run()
 		}
 		h.mu.Unlock()
@@ -165,16 +169,19 @@ func (a *App) Run() error {
 		token := r.URL.Query().Get("token")
 
 		if workspaceID == "" {
+			metrics.ConnectionsTotal.WithLabelValues("error").Inc()
 			a.log.Warn("WebSocket connection attempt without workspaceId")
 			http.Error(w, "workspaceId required", http.StatusBadRequest)
 			return
 		}
 		if userId == "" {
+			metrics.ConnectionsTotal.WithLabelValues("error").Inc()
 			a.log.Warn("WebSocket connection attempt without userId")
 			http.Error(w, "userId required", http.StatusBadRequest)
 			return
 		}
 		if token == "" {
+			metrics.ConnectionsTotal.WithLabelValues("error").Inc()
 			a.log.Warn("WebSocket connection attempt without token", "workspaceId", workspaceID, "userId", userId)
 			http.Error(w, "token required", http.StatusBadRequest)
 			return
@@ -182,11 +189,13 @@ func (a *App) Run() error {
 
 		isValid, err := a.auth.ValidateToken(r.Context(), token)
 		if err != nil || !isValid {
+			metrics.ConnectionsTotal.WithLabelValues("unauthorized").Inc()
 			a.log.Warn("WebSocket unauthorized access attempt", "workspaceId", workspaceID, "userId", userId, "error", err)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
+		metrics.ConnectionsTotal.WithLabelValues("success").Inc()
 		a.ServeWS(w, r, workspaceID, userId)
 	})
 
@@ -212,6 +221,7 @@ func (a *App) ServeWS(w http.ResponseWriter, r *http.Request, workspaceID, userI
 	room.register <- client
 
 	a.log.Info("New WS client connected", "workspaceId", workspaceID, "userId", userId, "addr", conn.RemoteAddr().String())
+	metrics.ActiveConnections.Inc()
 
 	go client.writePump(a.log)
 	go client.readPump(room, workspaceID, userId, a.log)
@@ -221,6 +231,7 @@ func (c *Client) readPump(r *Room, workspaceID, userId string, logger *slog.Logg
 	defer func() {
 		r.unregister <- c
 		c.conn.Close()
+		metrics.ActiveConnections.Dec()
 		logger.Info("WS client disconnected", "workspaceId", workspaceID, "userId", userId, "addr", c.conn.RemoteAddr().String())
 	}()
 
